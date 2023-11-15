@@ -62,7 +62,7 @@ The code includes preferences for carbon emission (`Ece_min`, `Ece_max`, `Ece_In
 
 ## Weights of Objective Functions
 Objective functions are assigned weights (`w_Econ`, `w_Thermal`, `w_acoustic`, `w_cost`, `w_visualG`, `w_visualI`, `w_aesthetic`, `w_Carbnemission`) to reflect their importance in the overall goal attainment. The weights are normalized to ensure a total weight of 1.
-
+Weights distribution in this code represents the balanced between Project stakeholders. 
 The final normalized weights (`w_Econ`, `w_Thermal`, etc.) are calculated to distribute the overall weight proportionally among different objectives.
 # MATLAB Code Explanation: Genetic Algorithm Options and EnergyPlus Simulation Configuration
 
