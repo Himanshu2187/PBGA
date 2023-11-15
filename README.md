@@ -8,19 +8,9 @@
 ## Overview
 The `PBGA_Balanced_Weights` MATLAB code is designed for Preference-based goal attainment optimization. It employs a genetic algorithm to find optimal solutions based on specified design variables, constraints, and preferences.
 
-## Structure
 
-1. **nested Function:**
-    - **SaveOut:** A nested function responsible for saving the best individuals during the optimization process.
 
-## Usage
-To use the code, follow these steps:
-
-1. Set the design variables (`lb` and `ub` arrays) representing lower and upper bounds.
-2. Define nonlinear constraints using the `Constr` function.
-3. Specify preferences for each objective.
-
-## Design Variables
+## Bounds of Design Variables
 The design variables represent various aspects of a building's characteristics:
 
 1. Window-wall ratio (`lb(1)` and `ub(1)`)
