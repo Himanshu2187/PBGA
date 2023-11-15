@@ -1,0 +1,585 @@
+function template_goal_attainment_global
+clc, clear, close all
+
+% Saves only the last populaton
+    function [state,options,changed] = SaveOut(options,state,flag)
+        file_name = 'SaveBest.mat';                                     % Name File
+        if strcmp(flag,'init')
+            Var = [repelem(0,size(state.Population,1))' state.Population, state.Score];
+            save(file_name, 'Var')                                      % Write ‘Best Individual’ To File
+        elseif strcmp(flag,'iter')
+            Var = [repelem(state.Generation,size(state.Population,1))' state.Population state.Score];                                % Read Previous Results, Append New Value
+            save(file_name, 'Var')                                      % Write ‘Best Individual’ To File
+        end
+        changed=false;                                              
+    end
+
+
+folder=pwd;
+NET.addAssembly(fullfile('N:\My Thesis\Tool\variables_codes\EplusLauncher.dll'));
+global Launcher;
+
+%% Design variables: 
+lb = [1 1 0.01 -2 40 60 30 1]; % lower bound
+ub = [99 99 300 2.5 200 200 200 3]; % upper bounds
+%1.  0.01<Window-wallratio<0.9
+%2.  0<interior Surface properties<1
+%3.  1<overhang width<2
+%4. -2<bulding height<2
+%5. 40<roof insulation thickness <200
+%6. 60<Floor insulation thickness<200
+%7. 30<Wall insulation thickness<200
+
+%TOTAL VARIABLEs = 7
+function [c, ceq] = Constr(x) % c stands for nonlinear inequality constraints and ceq - nonlinear equality constraitns
+
+c=[];
+ceq = [];
+end
+
+%Preferences  
+%Thermal comfort - Predicted Percentage Dissatisfied (PPD)
+PPD_Min = 81.07340707; %PPD minima
+PPD_Max = 92.37964989; %PPD Maxima
+PPD_Int = (PPD_Max+PPD_Min)/2; 
+Thermal_curve=[PPD_Max PPD_Int PPD_Min;0,30,100];
+xq_t = linspace(PPD_Max,PPD_Min,100);
+p_t = pchip(Thermal_curve(1,:),Thermal_curve(2,:),xq_t);
+
+%Energy Consumption - KWh
+Econ_Max_Sfctn = 20793.33; %minimum consumption
+Econ_Int_Sfctn = 26000;
+Econ_Min_Sfctn = 28186.72; % maximum consumption
+Econsmp_curve = [Econ_Min_Sfctn,Econ_Int_Sfctn,Econ_Max_Sfctn;0,40,100];
+xq_e = linspace(Econ_Min_Sfctn,Econ_Max_Sfctn,100);
+ p_e = pchip(Econsmp_curve(1,:),Econsmp_curve(2,:),xq_e);
+%plot(p_e)
+
+%Acoustic Comfort- reverbration Time (TR)
+TR_min = 1.418687765; %TR maxima
+TR_max = 0.648030313; %TR minima
+TR_Int = (TR_min+TR_max)/2;
+Acoustic_curve = [TR_min, TR_Int, TR_max; 0,40,100]; 
+xq_a = linspace(TR_min,TR_max,100);
+ p_a = pchip(Acoustic_curve(1,:),Acoustic_curve(2,:),xq_a);
+
+
+ % Total Cost- Euros
+ CE_min = 766270; %minima
+ CE_max = 1055236.06584682; %maxima
+ CE_Int = 9.1602e+05; % Current design cost
+Cost_curve = [CE_max,CE_Int,CE_min; 0,30,100];
+ xq_c = linspace(CE_min,CE_max,100);
+ p_c = pchip(Cost_curve(1,:),Cost_curve(2,:),xq_c);
+
+
+ % Visual Comfort Glare - Daylight Glare Index (DGI)
+VG_max = 7.8866; %minima
+VG_min = 16.9259480439983; %maxima
+VG_int = (VG_max+VG_min)/2;
+Glare_curve = [VG_min,VG_int,VG_max; 0,80,100];
+xq_g = linspace(VG_min,VG_max,100);
+p_g = pchip(Glare_curve(1,:),Glare_curve(2,:),xq_g);
+
+
+%Visual Comfort illuminance - Horizontal illuminance (lx)
+VI_min = 250.1697227; % minima 
+VI_max = 5096.96; %maxima
+VI_int1 = 1000;
+VI_int2 = 2000;
+VI_int3 = 4000;
+Illuminance_curve = [VI_min,VI_int1,VI_int2,VI_int3, VI_max; 0,90,100,70,0];
+xq_i = linspace(VI_min,VI_max,100);
+p_i = pchip(Illuminance_curve(1,:),Illuminance_curve(2,:),xq_i);
+%plot(p_i)
+
+% Aesthetics Comfort - Asthetic index
+Ac_min = 0.0535;  %minima
+Ac_max = 0.9980; %maxima
+Ac_int = 0.3218;
+AS_curve = [Ac_min,Ac_int,Ac_max; 0,80,100];
+xq_as = linspace(Ac_min,Ac_max,100);
+p_as = pchip(AS_curve(1,:),AS_curve(2,:),xq_as);
+%plot(p_as)
+
+
+%Carbon emission - Kg Co2/m2
+Ece_min = 42223.0106166003; %minima
+Ece_max = 138820.020798083; %maxima
+Ece_Int = 84447; % Current design ece
+Ece_curve = [Ece_max,Ece_Int,Ece_min; 0,70,100];
+xq_ece = linspace(Ece_max,Ece_min,100);
+p_ece = pchip(Ece_curve(1,:),Ece_curve(2,:),xq_ece);
+
+
+
+ 
+ %% Weights of objective functions
+w_Econ=1/8; 
+w_Thermal=1/12;
+w_acoustic = 1/12;
+w_cost = 1/8;
+w_visualI = 1/24;
+w_visualG = 1/24;
+w_aesthetic = 1/4;
+w_Carbnemission = 1/4; 
+w_visual = (w_visualG+w_visualI)/2;
+w_total=w_Econ+w_Thermal+w_acoustic+w_cost+w_visualG +w_visualI+w_aesthetic+w_Carbnemission;
+w_Econ=w_Econ/w_total;
+w_Thermal=w_Thermal/w_total;
+w_acoustic=w_acoustic/w_total;
+w_cost = w_cost/w_total;
+w_visual = w_visual/w_total;
+w_aesthetic = w_aesthetic/w_total;
+  w_visualI = w_visualI/w_total;
+  w_visualG = w_visualG/w_total;
+  w_Carbnemission = w_Carbnemission/w_total;
+
+%GA Options
+opts = optimoptions(@ga, ...
+                    'PopulationSize',60,... 
+                    'MaxGenerations', 90,...
+                    'MaxStallGenerations', 10,...
+                    'EliteCount', 6,...
+                    'Display', 'iter',...
+                    'PlotFcn',@gaplotbestf,...
+                    'OutputFcn', @SaveOut);
+
+
+
+% EnergyPlus simulation configuration
+config = EplusLauncher.Configuration();
+config.InputFile = fullfile('N:\My Thesis\Tool\variables_codes\idfmodeltry2.idf');  % Path to IDF file
+config.WeatherFile = fullfile('N:\My Thesis\Tool\variables_codes\weather.epw');  % Path to weather file
+config.RviFile = fullfile('N:\My Thesis\Tool\variables_codes\model.rvi');  % Path to RVI file
+config.EnergyPlusFolder = 'C:\EnergyPlusV9-4-0';  % EnergyPlus installation path
+config.OutputFolder = fullfile('N:\My Thesis\Tool\variables_codes\OutputJob');  % Output folder path
+Tags = {'@@thermal@@','@@visible@@','@@solar@@','@@RFInsulThickness@@', '@@FloorInsulThickness@@','@@WallInsulThickness@@','@@RoofInsulation@@','@@WX@@', '@@WY@@','@@H1@@', '@@H2@@', '@@H3@@', '@@H4@@', '@@H5@@', '@@H6@@', '@@H7@@', '@@H8@@', '@@H9@@', '@@H10@@', '@@H11@@', '@@H12@@', '@@H13@@', '@@H14@@', '@@H15@@', '@@H16@@', '@@H17@@', '@@H18@@', '@@H19@@', '@@H20@@', '@@H21@@', '@@H22@@', '@@H23@@', '@@H24@@', '@@H25@@', '@@H26@@','@@O1X1@@', '@@O1Y1@@', '@@O1X2@@', '@@O1Y2@@','@@O2X1@@', '@@O2Y1@@', '@@O2X2@@', '@@O2Y2@@','@@O3X1@@', '@@O3Y1@@', '@@O3X2@@', '@@O3Y2@@','@@O4X1@@', '@@O4Y1@@', '@@O4X2@@', '@@O4Y2@@','@@O5X1@@', '@@O5Y1@@', '@@O5X2@@', '@@O5Y2@@','@@O6X1@@', '@@O6Y1@@', '@@O6X2@@', '@@O6Y2@@','@@O7X1@@', '@@O7Y1@@', '@@O7X2@@', '@@O7Y2@@','@@O8X1@@', '@@O8Y1@@', '@@O8X2@@', '@@O8Y2@@', '@@O9X2@@', '@@O9Y2@@','@@O11X1@@', '@@O11Y1@@', '@@O12X2@@', '@@O12Y2@@','@@O16X1@@', '@@O16Y1@@'};
+  % Tags to replace in IDF file
+
+%% Objective function
+
+    function Opt = ObjFunction(x)
+    % Map the variables
+ 
+Launcher = EplusLauncher.Launcher();
+Launcher.MaxCores = 1;
+Launcher.OutputFolderNumber = 0;
+Launcher.JobsLogFile = (fullfile(folder,'jobs.csv'));
+
+addlistener(Launcher,'OutputMessageReceived',@EnergyPlusMessage);
+addlistener(Launcher,'SimulationCompleted',@SimulationFinished);
+addlistener(Launcher,'JobsFinished',@JobsFinished);
+
+% 1st Variable: Window To Wall Ratio, x(1)
+wall_surface_area = 83.748;
+wx_min = -31.3348458736;
+wx_max = -44.2332898805;
+wy_min = 27.167357268;
+wy_max = 21.96061338;
+ %x(1) = ratio;
+window_area = wall_surface_area * x(1)/100;
+    wall_area = wall_surface_area - window_area;
+
+    % Calculate the window coordinates
+    wx = wx_min + (wx_max - wx_min) * x(1)/100; % Linear interpolation
+    wy = ((wy_max - wy_min) / (wx_max - wx_min)) * (wx - wx_min) + wy_min;
+
+    Winw = sqrt((wx-wx_min)^2+(wy-wy_min)^2); %Window width of Wall 1
+  
+
+% 2nd Variable: Interior Surface properties, x(2)
+   thermal = x(2)/100;
+    visible = x(2)/100;
+    solar=x(2)/100;
+
+
+% 3rd Variable: Overhang width, x(3)
+        
+d= x(3)/100;
+
+ %Overhang vertices coordinates in idf   
+ O1X3 = -45.8263901105;
+O1Y3 = 21.3175230289;
+O1X4 = -38.3258765263;
+O1Y4 = 24.3452722085;
+O2X3 = -41.5343269834;
+O2Y3 = 23.0501097999;
+O2X4 = -34.0338133993;
+O2Y4 = 26.0778589796;
+O3X3 = -37.2422638563;
+O3Y3 = 24.782696571;
+O3X4 = -29.7417502722;
+O3Y4 = 27.8104457507;
+O4X3 = -30.691253435;
+O4Y3 = 25.5744651927;
+O4X4 = -33.7022574501;
+O4Y4 = 33.0267038253;
+O5X3 = -32.4060800881;
+O5Y3 = 29.8186632635;
+O5X4 = -35.4170841032;
+O5Y4 = 37.2709018961;
+O6X3 = -34.1209067412;
+O6Y3 = 34.0628613343;
+O6X4 = -37.1319107563;
+O6Y4 = 41.515099967;
+O7X3 = -35.8357333943;
+O7Y3 = 38.3070594052;
+O7X4 = -38.8467374094;
+O7Y4 = 45.7592980378;
+O8X3 = -37.5505600474;
+O8Y3 = 42.551257476;
+O8X4 = -40.5615640625;
+O8Y4 = 50.0034961086;
+O9X3 = -38.3250688186;
+O9Y3 = 49.0541760608;
+O9X4 = -45.8252291255;
+O9Y4 = 46.0239145988;
+O11X3 = -46.9092771588;
+O11Y3 = 45.5859307633;
+O11X4 = -54.4094374657;
+O11Y4 = 42.5556693013;
+O12X3 = -53.4602572712;
+O12Y3 = 44.7920849754;
+O12X4 = -50.4489711375;
+O12Y4 = 37.3408725764;
+O16X3 = -46.6008536659;
+O16Y3 = 27.8189808183;
+O16X4 = -43.5895675321;
+O16Y4 = 20.3677684192;
+
+    O1X1 = O1X4 + sqrt(d^2 / (1 + ((O1X4-O1X3) / (O1Y3-O1Y4))^2));
+    O1Y1 = O1Y4 + ((O1X4-O1X3) / (O1Y3-O1Y4)) * (O1X4 + sqrt(d^2 / (1 + ((O1X4-O1X3) / (O1Y3-O1Y4))^2)) - O1X4);
+    O1X2 = O1X3 + sqrt(d^2 / (1 + ((O1X3-O1X4) / (O1Y4-O1Y3))^2));
+    O1Y2 = O1Y3 + ((O1X3-O1X4) / (O1Y4-O1Y3))* (O1X3 + sqrt(d^2 / (1 + ((O1X3-O1X4) / (O1Y4-O1Y3))^2)) - O1X3);
+ 
+
+% Equations for O2
+O2X1 = O2X4 + sqrt(d^2 / (1 + ((O2X4-O2X3) / (O2Y3-O2Y4))^2));
+O2Y1 = O2Y4 + ((O2X4-O2X3) / (O2Y3-O2Y4)) * (O2X4 + sqrt(d^2 / (1 + ((O2X4-O2X3) / (O2Y3-O2Y4))^2)) - O2X4);
+O2X2 = O2X3 + sqrt(d^2 / (1 + ((O2X3-O2X4) / (O2Y4-O2Y3))^2));
+O2Y2 = O2Y3 + ((O2X3-O2X4) / (O2Y4-O2Y3))* (O2X3 + sqrt(d^2 / (1 + ((O2X3-O2X4) / (O2Y4-O2Y3))^2)) - O2X3);
+
+% Equations for O3
+O3X1 = O3X4 + sqrt(d^2 / (1 + ((O3X4-O3X3) / (O3Y3-O3Y4))^2));
+O3Y1 = O3Y4 + ((O3X4-O3X3) / (O3Y3-O3Y4)) * (O3X4 + sqrt(d^2 / (1 + ((O3X4-O3X3) / (O3Y3-O3Y4))^2)) - O3X4);
+O3X2 = O3X3 + sqrt(d^2 / (1 + ((O3X3-O3X4) / (O3Y4-O3Y3))^2));
+O3Y2 = O3Y3 + ((O3X3-O3X4) / (O3Y4-O3Y3))* (O3X3 + sqrt(d^2 / (1 + ((O3X3-O3X4) / (O3Y4-O3Y3))^2)) - O3X3);
+
+
+% Equations for O4
+O4X1 = O4X4 + sqrt(d^2 / (1 + ((O4X4-O4X3) / (O4Y3-O4Y4))^2));
+O4Y1 = O4Y4 + ((O4X4-O4X3) / (O4Y3-O4Y4)) * (O4X4 + sqrt(d^2 / (1 + ((O4X4-O4X3) / (O4Y3-O4Y4))^2)) - O4X4);
+O4X2 = O4X3 + sqrt(d^2 / (1 + ((O4X3-O4X4) / (O4Y4-O4Y3))^2));
+O4Y2 = O4Y3 + ((O4X3-O4X4) / (O4Y4-O4Y3))* (O4X3 + sqrt(d^2 / (1 + ((O4X3-O4X4) / (O4Y4-O4Y3))^2)) - O4X3);
+
+
+% Equations for O5
+O5X1 = O5X4 + sqrt(d^2 / (1 + ((O5X4-O5X3) / (O5Y3-O5Y4))^2));
+O5Y1 = O5Y4 + ((O5X4-O5X3) / (O5Y3-O5Y4)) * (O5X4 + sqrt(d^2 / (1 + ((O5X4-O5X3) / (O5Y3-O5Y4))^2)) - O5X4);
+O5X2 = O5X3 + sqrt(d^2 / (1 + ((O5X3-O5X4) / (O5Y4-O5Y3))^2));
+O5Y2 = O5Y3 + ((O5X3-O5X4) / (O5Y4-O5Y3))* (O5X3 + sqrt(d^2 / (1 + ((O5X3-O5X4) / (O5Y4-O5Y3))^2)) - O5X3);
+
+% Equations for O6
+O6X1 = O6X4 + sqrt(d^2 / (1 + ((O6X4-O6X3) / (O6Y3-O6Y4))^2));
+O6Y1 = O6Y4 + ((O6X4-O6X3) / (O6Y3-O6Y4)) * (O6X4 + sqrt(d^2 / (1 + ((O6X4-O6X3) / (O6Y3-O6Y4))^2)) - O6X4);
+O6X2 = O6X3 + sqrt(d^2 / (1 + ((O6X3-O6X4) / (O6Y4-O6Y3))^2));
+O6Y2 = O6Y3 + ((O6X3-O6X4) / (O6Y4-O6Y3))* (O6X3 + sqrt(d^2 / (1 + ((O6X3-O6X4) / (O6Y4-O6Y3))^2)) - O6X3);
+
+
+% Equations for O7
+O7X1 = O7X4 + sqrt(d^2 / (1 + ((O7X4-O7X3) / (O7Y3-O7Y4))^2));
+O7Y1 = O7Y4 + ((O7X4-O7X3) / (O7Y3-O7Y4)) * (O7X4 + sqrt(d^2 / (1 + ((O7X4-O7X3) / (O7Y3-O7Y4))^2)) - O7X4);
+O7X2 = O7X3 + sqrt(d^2 / (1 + ((O7X3-O7X4) / (O7Y4-O7Y3))^2));
+O7Y2 = O7Y3 + ((O7X3-O7X4) / (O7Y4-O7Y3))* (O7X3 + sqrt(d^2 / (1 + ((O7X3-O7X4) / (O7Y4-O7Y3))^2)) - O7X3);
+
+
+% Equations for O8
+O8X1 = O8X4 + sqrt(d^2 / (1 + ((O8X4-O8X3) / (O8Y3-O8Y4))^2));
+O8Y1 = O8Y4 + ((O8X4-O8X3) / (O8Y3-O8Y4)) * (O8X4 + sqrt(d^2 / (1 + ((O8X4-O8X3) / (O8Y3-O8Y4))^2)) - O8X4);
+O8X2 = O8X3 + sqrt(d^2 / (1 + ((O8X3-O8X4) / (O8Y4-O8Y3))^2));
+O8Y2 = O8Y3 + ((O8X3-O8X4) / (O8Y4-O8Y3))* (O8X3 + sqrt(d^2 / (1 + ((O8X3-O8X4) / (O8Y4-O8Y3))^2)) - O8X3);
+
+
+% Equations for O9
+
+O9X1 = O9X4 + sqrt(d^2 / (1 + ((O9X4-O9X3) / (O9Y3-O9Y4))^2));
+O9Y1 = O9Y4 + ((O9X4-O9X3) / (O9Y3-O9Y4)) * (O9X4 + sqrt(d^2 / (1 + ((O9X4-O9X3) / (O9Y3-O9Y4))^2)) - O9X4);
+O9X2 = O9X3 - sqrt(d^2 / (1 + ((O9X3-O9X4) / (O9Y1-O9Y3))^2));
+O9Y2 = O9Y3 - ((O9X3-O9X4) / (O9Y4-O9Y3))* (O9X3 + sqrt(d^2 / (1 + ((O9X3-O9X4) / (O9Y4-O9Y3))^2)) - O9X3);
+
+
+% Equations for O11
+O11X1 = O11X4 - sqrt(d^2 / (1 + ((O11X4-O11X3) / (O11Y3-O11Y4))^2));
+O11Y1 = O11Y4 - ((O11X4-O11X3) / (O11Y3-O11Y4)) * (O11X4 + sqrt(d^2 / (1 + ((O11X4-O11X3) / (O11Y3-O11Y4))^2)) - O11X4);
+
+% Equations for O12
+
+O12X2 = O12X3 - sqrt(d^2 / (1 + ((O12X3-O12X4) / (O12Y4-O12Y3))^2));
+O12Y2 = O12Y3 - ((O12X3-O12X4) / (O12Y4-O12Y3))* (O12X3 + sqrt(d^2 / (1 + ((O12X3-O12X4) / (O12Y4-O12Y3))^2)) - O12X3);
+
+
+% Equations for O16
+O16X1 = O16X4 - sqrt(d^2 / (1 + ((O16X4-O16X3) / (O16Y3-O16Y4))^2));
+O16Y1 = O16Y4 - ((O16X4-O16X3) / (O16Y3-O16Y4)) * (O16X4 + sqrt(d^2 / (1 + ((O16X4-O16X3) / (O16Y3-O16Y4))^2)) - O16X4);
+
+
+
+% 4th Variable: Building's Height, x(4) 
+
+h = [6.02, 5.252, 7.110000004, 7.11, 7.110000002, 7.110000001, 6.192426029, 6.192426038, 6.896079382, 6.192426035, 6.896079379, 6.192426034, 6.896079379, 6.192426031, 6.896079385, 6.026094104, 7.027919137, 7.023950821, 8.025005663, 9.026060523, 8.025005672, 9.026060518, 8.025005667, 8.025005668, 9.026060521, 9.02606052];
+addition_factor = x(4); % Change in height
+% Add the factor to the heights
+h_added = h + addition_factor; % changed height 
+h_window = h(2) + addition_factor; %new window height 
+h_wall = h(1) + addition_factor; %new wall height
+
+% 5th Variable: Roof insulation thickness, x(5)
+RFInsulThickness = x(5)/1000;
+
+% 6th Variable: Floor insulation thickness, x(6)
+FloorInsulThickness = x(6)/1000;
+
+% 7th Variable: Wall insulation thickness, x(7) 
+WallInsulThickness = x(7)/1000;
+
+% 8th Variable: Roof Insulation Type, x(8)
+insulation_type = x(8);
+Roof_insulation = {'Roof_XPS_Extruded_Polystyrene', 'Roof_insulation_PTR_rigid_foam', 'Roof_EPS_Insulation'};
+chosen_insulation = Roof_insulation(insulation_type);
+
+%%
+job = EplusLauncher.Job(config);
+    job.AddTags(Tags);
+   job.AddValues([thermal,visible, solar,RFInsulThickness,FloorInsulThickness, WallInsulThickness,chosen_insulation, wx, wy,h_added(1), h_added(2), h_added(3), h_added(4), h_added(5), h_added(6), h_added(7), h_added(8), h_added(9), h_added(10), h_added(11), h_added(12), h_added(13), h_added(14), h_added(15), h_added(16), h_added(17), h_added(18), h_added(19), h_added(20), h_added(21), h_added(22), h_added(23), h_added(24), h_added(25), h_added(26), O1X1, O1Y1, O1X2, O1Y2, O2X1, O2Y1, O2X2, O2Y2, O3X1, O3Y1, O3X2, O3Y2, O4X1, O4Y1, O4X2, O4Y2, O5X1, O5Y1, O5X2, O5Y2, O6X1, O6Y1, O6X2, O6Y2, O7X1, O7Y1, O7X2, O7Y2, O8X1, O8Y1, O8X2, O8Y2, O9X2, O9Y2, O11X1, O11Y1,O12X2, O12Y2, O16X1, O16Y1]);
+
+    Launcher.Jobs.Add(job);
+    
+    Launcher.Run();
+
+%Objective Functions
+
+%Acoustic Objective calculations
+% Frequencies and corresponding absorption coefficients,
+aIS = 0.62; % average absorption coefficient; average_alpha = mean(alpha_values); alpha_values of  a 25mm thick HERADESIGN, fine, wood wool= [.4 ,.75,.65,.55,0.75];@frequencies = [125, 250, 500, 1000, 2000]; 
+a2 = 0.066; % Absorption coefficients of triple glazed glass at different frequencies; alpha_values = [0.18, 0.06, 0.04, 0.03, 0.02];@frequencies = [125, 250, 500, 1000, 2000]; 
+a3 = 0.066; 
+a4 = 0.066;
+a1 = 0.066;
+aceiling =   0.3660; % ceiling absorption coefficient = [.06 ,.21,.43,.44,.69] 
+aFloor =  0.4860; % Floor absorption coefficient = [.2 ,.5,.68,.6,.45]
+S1 = Winw*h_window; % Surface area of window on wall 1
+S2 = 4.47753729810623*5*h_window; % Surface area of the windows on wall 2; 4.47753729810623 = width of each window on wall 2; 5 windows on bigger wall; calculation: SQRT((-38.2173796151-(-39.8947444948))^2+(44.2016367245-48.3531168601)^2); coordinates of Block1:Zone1_Wall_3_0_0_0_0_4_Win, vertices(1,2)
+S3 = 3*4.52857027668468*h_window; %Surface area of the windows on wall 3; 4.52857027668468 = width of each window on smaller wall; 3 windows on smaller wall; calculation: SQRT((-31.3923403917+35.5916737368)^2 +(27.1441483266-25.4489939951)^2); coordinates of Block1:Zone1_Wall_2_0_0_0_0_2_Win, vertices(3,4)
+S4 = 4.47753729810623*5*h_window; % Surface area of the windows on wall 4; 4.47753729810623 = width of each window on wall 2; 5 windows on bigger wall
+SWall = (13.90971027-Winw)*h_wall; %Suraface area of the project Wall on Wall 1; 13.59 = total width of the wall; calculation: SQRT((-31.3348458736-(-44.2332898805))^2+(27.167357268-21.96061338)^2), coordinates of Zone1_Wall_2_0_0; vertices (3,4)  
+SFnR =  318.687; % Surface area of Floor and Roof W
+Absor = S1*a1 + S2*a2 + S3*a3 + S4*a4 + SWall*aIS + SFnR*(aceiling+aFloor); %S=surface area of wall 1 glass, a=alpha, WISaIS = innerwall suface and its alpha
+K = 0.161; %  dimensionless factor (s/m) in Sabine's equation.
+V = 318.687* h_wall; % volume of the room
+TR = K*V/Absor; % reverbration time (TR), K=constant, Absor = total absorption
+
+
+%Cost Objective
+Gprice = 600; %Glass price per m2
+%Project wall from outer to inner
+Concrete_block = 1.34; % cost per m2, thickness = 100mm Recipe Concrete C20/25, environmental class XC1, consistency area C1, CEMIII, gravel 4 - 16 mm
+Brickwork_outer = .09178; % per piece of Poriso D 100/100, 210 x 100 x 100 mm, full load
+Gypsum_Plaster = .63; %per kg
+Gypsum_Plaster_Thickness = 0.013; % in m
+Gypsum_Plaster_Density = 1000; % Kg/m3
+
+overhang_length = 80.76165463*2; % m, Overhang length including all sides; calculations: (Wall1 Width+Wall2 Width)*2 + Overhang Projection*4; overhang projection = 1.78;Wall 1 width=13.90971027; Wall 2 width = 22.91111705; 
+
+ 
+overhang_area = overhang_length*d; %    m2
+Cost_overhang = 75.75*overhang_area; %8.81eur/m2 is the cost of Roof trim RAL enamelled aluminium with the thickness of 3mm    
+
+FinsulThckness_cost = FloorInsulThickness*0.4265; % 25.59/60mm, 8.53/20mm  Floor, basement wall and roof insulation, extruded polystyrene rigid foam XPS, 300 kPa
+RinsulThcknessXPS_cost = RFInsulThickness*0.4265;%8.53/20mm  Floor, basement wall and roof insulation, extruded polystyrene rigid foam XPS, 300 kPa
+RinsulThcknessEPS_cost = RFInsulThickness*0.185625; % Roof insulation board, EPS 100, 
+RinsulThcknessPIR_cost= RFInsulThickness* 1.098888889; % Roof insulation board, PIR rigid foam 
+Winsulthckness_cost = WallInsulThickness*0.475;  %4.75/10mm  Insulation inside and outside wall, extruded polystyrene rigid foam XPS, 300 kPa
+
+
+    if insulation_type == 1
+        cost = RFInsulThickness * 0.4265; %XPS insulation cost/m2
+    elseif insulation_type == 2
+        cost = RFInsulThickness * 1.098888889; %PIR insulation cost/m2
+    elseif insulation_type == 3
+        cost = RFInsulThickness * 0.185625;%EPS insulation cost/m2
+    else
+        error('Invalid roof type selected in x(8). Please choose 1, 2, or 3.');
+    end
+
+Wall_acousticpanel = 20.4; %cost per/m2, Recipe Wood wool panel, fine, 1-layer magnesite-bound, inlay (SK-04) or straight edges (GK), thickness 25 mm
+
+Blinds_cost = 88.91; % cost/m2 CCBlinds
+%Surface area of wall and windows
+S1 = Winw*h_window; % Surface area of window on wall 1
+S2 = 4.47753729810623*5*h_window; % Surface area of the windows on wall 2; 4.47753729810623 = width of each window on wall 2; 5 windows on bigger wall; calculation: SQRT((-38.2173796151-(-39.8947444948))^2+(44.2016367245-48.3531168601)^2); coordinates of Block1:Zone1_Wall_3_0_0_0_0_4_Win, vertices(1,2)
+S3 = 3*4.52857027668468*h_window; %Surface area of the windows on wall 3; 4.52857027668468 = width of each window on smaller wall; 3 windows on smaller wall; calculation: SQRT((-31.3923403917+35.5916737368)^2 +(27.1441483266-25.4489939951)^2); coordinates of Block1:Zone1_Wall_2_0_0_0_0_2_Win, vertices(3,4)
+S4 = 4.47753729810623*5*h_window; % Surface area of the windows on wall 4; 4.47753729810623 = width of each window on wall 2; 5 windows on bigger wall
+SWall = (13.90971027-Winw)*h_wall; %Suraface area of the project Wall on Wall 1; 13.59 = total width of the wall; calculation: SQRT((-31.3348458736-(-44.2332898805))^2+(27.167357268-21.96061338)^2), coordinates of Zone1_Wall_2_0_0; vertices (3,4)  
+SFnR =  318.687; % Surface area of Floor and Roof 
+Cost_escalation=  (S1 + S2 + S3 + S4)*Gprice + SWall*(Concrete_block+Winsulthckness_cost+Brickwork_outer/0.21+(Gypsum_Plaster_Thickness*Gypsum_Plaster*Gypsum_Plaster_Density)+Wall_acousticpanel) + Cost_overhang + FinsulThckness_cost*SFnR + cost*SFnR +Blinds_cost*(S1+S2+S3+S4);
+Cost_other = 633177.62;
+Cost_Objective = Cost_other+Cost_escalation;
+
+% Thermal Comfort Objective
+
+data=csvread(fullfile('N:\My Thesis\Tool\variables_codes\OutputJob0\eplusout.csv'), 1, 1); %all the outputs from e+ as a table
+schedule=readmatrix(fullfile('N:\My Thesis\Tool\variables_codes\schedule occupancy.xlsx'), 'Range','C2:C8761'); % schedule
+fanger_no_schedule=mean(data(:,4)); %average yearly fanger without taking schedule into account
+fanger_with_schedule=dot(data(:,4),schedule)/sum(schedule); %average yearly fanger with schedule included
+
+    Thermalcomfort = fanger_with_schedule;
+
+%EnergyConsumption Objective
+
+T=readtable(fullfile('N:\My Thesis\Tool\variables_codes\OutputJob0\eplustbl.csv')); %This is the file with table reports that DesignBuilder shows. Some values are easier to get from there compared to eplusout.eso.
+    Econsumption=str2double(table2array(T(10,3)));
+
+%Visual Comfort Objective
+data=csvread(fullfile('N:\My Thesis\Tool\variables_codes\OutputJob0\eplusout.csv'), 1, 1); %all the outputs from e+ as a table
+schedule=readmatrix(fullfile('N:\My Thesis\Tool\variables_codes\schedule occupancy.xlsx'), 'Range','C2:C8761'); % schedule
+
+%Glare
+Glare_no_schedule=mean(data(:,11)); %average yearly fanger without taking schedule into account
+Glare_with_schedule=dot(data(:,11),schedule)/sum(schedule); %average yearly fanger with schedule included
+
+VisualcmfrtG = Glare_with_schedule;
+
+%Illuminance
+
+illumunance_no_schedule=mean(data(:,7)); %average yearly fanger without taking schedule into account
+illuminance_with_schedule=dot(data(:,7),schedule)/sum(schedule); %average yearly fanger with schedule included
+
+VisualcmfrtI = illuminance_with_schedule;
+%Aesthetics Objective
+   w1 = .2;
+   w2 = 0.3;
+   w3 = .5;
+    % Calculate the aesthetic index (AI) for the window-to-wall ratio
+  % x(1) = .99;
+    A1 = x(1)/100;
+  
+    %x(2) = 2.2;% Calculate the aesthetic index (AI) for the overhang width
+  d = x(3)/100;
+    if d >= 0 && d <= 2
+        A2 = d / 2;
+    elseif d > 2 && d <= 4
+        A2 = 1 - ((d - 2) / 2);
+    else
+        A2 = 0; % Placeholder if the overhang width is out of specified range
+    end
+    
+    % Calculate the aesthetic index (AI) for the change in building height
+    a1 = -2.5;
+    x1 = 0;
+    a2 = 2.5;
+    x2 = 1;
+
+    % Check the value of 'a' and calculate 'x' accordingly
+ % x(3)= 2; 
+    if x(4) == a1
+        A3 = x1;
+    elseif x(4) == a2
+        A3 = x2;
+    else
+        % Linear interpolation between the two points
+        A3 = x1 + ((x2 - x1) / (a2 - a1)) * (x(4) - a1);
+    end
+
+    A = w1 * A1 + w2 * A2 + w3 * A3;
+
+%Carbon emission Objective
+G_ece = 70; %kg CO2e/m2, Insulating glass unit with laminated glass and argon cavity filament, triple glazed, 56 mm, 60 kg/m2, CLIMATOP SILENCE CLIMATOP PLANITHERM, ECLAZ, PLANISTAR SUN, COOL LITE SKN ET COOL LITE XTREME (SAINT-GOBAIN GLASS FRANCE), kg CO2e ( Original impact)
+
+Concrete_block = 67.715; % kg CO2e/m3, 135.43 kg co2e/m3 for 200mm so for 100mm it is 67.715, Ready-mix concrete, normal-strength, generic, C20/25 (2900/3600 PSI), 55% recycled binders in cement (240 kg/m3 / 14.98 lbs/ft3)
+Concrete_thickness = 0.1; %meter
+Concrete_ece = Concrete_block*Concrete_thickness; %kg CO2e/m2
+
+
+%XPS_ece = 3.48; %kg CO2e/m2, XPS insulation panels, L=0.033 W/mK, R=1.2 m2K/W, 40 mm, 1.25 kg/m2, 31.25 kg/m3, compressive strength 300 kPa, 40% recycled polystyrene, CO2 blowing agent, Lambda=0.033 W/(m.K) (One Click LCA)
+
+Brickwork_outer = 113; % kg CO2e/m3, Wall bricks, 575 kg/m3 (Ziegel)
+Brickwork_thickness = 0.1; % meter
+Brickwork_ece = Brickwork_outer*Brickwork_thickness; %kg CO2e/m2
+
+Gypsum_ece = 0.2; %kg CO2e/kg, Gypsum plaster, 1100 kg/m3 (Bundesverband der Gipsindustrie)
+Gypsum_Plaster_Thickness = 0.013; % in m
+Gypsum_Plaster_Density = 1000; % Kg/m3
+PlasterBoard_ece = Gypsum_ece*Gypsum_Plaster_Density*Gypsum_Plaster_Thickness; %kg CO2e/m2
+
+
+overhang_length = 80.76165463*2; %total overhang length with twice of increment.
+overhang_area = overhang_length*d; 
+Aluminium_ece = 7.5; %kg CO2e/m2 Aluminium façade cladding panel, anodized, 7.5 kg/m2, 70% recycled content (One Click LCA)
+Aluminium_density = 2700.0; %kg/m3
+Aluminium_thickness = 0.003; % meter
+Overhang_ece = Aluminium_ece; %kg CO2e/m2
+
+
+Finsul_ece =69.6*FloorInsulThickness; %kg CO2e/m2,69.6 kg CO2/m3 , XPS insulation panels, L=0.033 W/mK, R=1.2 m2K/W, 40 mm, 1.25 kg/m2, 31.25 kg/m3, compressive strength 300 kPa, 40% recycled polystyrene, CO2 blowing agent, Lambda=0.033 W/(m.K) (One Click LCA)
+
+Winsul_ece = 69.6*WallInsulThickness;  %4.75/10mm  Insulation inside and outside wall, extruded polystyrene rigid foam XPS, 300 kPa
+
+
+    if insulation_type == 1
+        Roof_ece = RFInsulThickness * 69.6; %kg CO2e/m2,XPS insulation panels, L=0.033 W/mK, R=1.2 m2K/W, 40 mm, 1.25 kg/m2, 31.25 kg/m3, compressive strength 300 kPa, 40% recycled polystyrene, CO2 blowing agent, Lambda=0.033 W/(m.K) (One Click LCA)
+    elseif insulation_type == 2
+        Roof_ece = RFInsulThickness * 278.5; %kg CO2e/m2, PIR (polyisocyanurate foam) insulation panels, unfaced, generic, L = 0.022 W/mK, R = 4.55 m2K/W (26.7 ft2°Fh/BTU), 100 mm (3.94 in), 45 kg/m3 (2.81 lbs/ft3), Lambda=0.022 W/(m.K) 
+    elseif insulation_type == 3
+        Roof_ece = RFInsulThickness * 103.1; %kg CO2e/m2, EPS insulation panels, graphite, L= 0.033 W/mK, R= 3.03 m2K/W, 100 mm, 3 kg/m2, 30 kg/m3, compressive strength 220 kPa, 100% recycled polystyrene, Lambda=0.033 W/(m.K) (One Click LCA)
+    else
+        error('Invalid roof type selected in x(8). Please choose 1, 2, or 3.');
+    end
+
+Acoustic_panel_ece = 5.49; %kg CO2e / m2, Acoustic wood-wool panel, 25 mm, 460 kg/m3, 11.2 kg/m2, 16% moisture content, Heradesign superfine, Heradesign superfine A2 Heradesign fine, Heradesign fine A2 Heradesign macro Heradesign micro Heradesign plano (KNAUF)
+
+Blinds_ece = 132; %kg CO2e / m2, Aluminium venetian blinds, motorized, for exterior use, 0.08 m2K/W, 0.5 x 0.7 m, 17.23 kg/m2 (Groupement ACTIBAIE) 
+
+S1 = Winw*h_window; % Surface area of window on wall 1
+S2 = 4.47753729810623*5*h_window; % Surface area of the windows on wall 2; 4.47753729810623 = width of each window on wall 2; 5 windows on bigger wall; calculation: SQRT((-38.2173796151-(-39.8947444948))^2+(44.2016367245-48.3531168601)^2); coordinates of Block1:Zone1_Wall_3_0_0_0_0_4_Win, vertices(1,2)
+S3 = 3*4.52857027668468*h_window; %Surface area of the windows on wall 3; 4.52857027668468 = width of each window on smaller wall; 3 windows on smaller wall; calculation: SQRT((-31.3923403917+35.5916737368)^2 +(27.1441483266-25.4489939951)^2); coordinates of Block1:Zone1_Wall_2_0_0_0_0_2_Win, vertices(3,4)
+S4 = 4.47753729810623*5*h_window; % Surface area of the windows on wall 4; 4.47753729810623 = width of each window on wall 2; 5 windows on bigger wall
+SWall = (13.90971027-Winw)*h_wall; %Suraface area of the project Wall on Wall 1; 13.59 = total width of the wall; calculation: SQRT((-31.3348458736-(-44.2332898805))^2+(27.167357268-21.96061338)^2), coordinates of Zone1_Wall_2_0_0; vertices (3,4)  
+SFnR =  318.687; % Surface area of Floor and Roof 
+ece_Change=  (S1 + S2 + S3 + S4)*G_ece + SWall*(Concrete_ece +Brickwork_ece+PlasterBoard_ece+Winsul_ece+Acoustic_panel_ece) + (Overhang_ece*overhang_area) + Finsul_ece*SFnR + Roof_ece*SFnR +(S1 + S2 + S3 + S4)*Blinds_ece;
+
+
+%All Objectives
+
+Objective_m(1) = pchip(Econsmp_curve(1,:), Econsmp_curve(2,:),Econsumption);
+Objective_m(2) = pchip(Thermal_curve(1,:),Thermal_curve(2,:),Thermalcomfort);
+Objective_m(3) = pchip(Acoustic_curve(1,:),Acoustic_curve(2,:),TR);
+Objective_m(4) = pchip(Cost_curve(1,:), Cost_curve(2,:),Cost_Objective)
+Objective_m(5) = pchip(Glare_curve(1,:),Glare_curve(2,:),VisualcmfrtG);
+Objective_m(6) = pchip(Illuminance_curve(1,:),Illuminance_curve(2,:),VisualcmfrtI);
+Objective_m(7) = pchip(AS_curve(1,:),AS_curve(2,:),A)
+Objective_m(8) = pchip(Ece_curve(1,:), Ece_curve(2,:), ece_Change)
+w= [w_Econ w_Thermal w_acoustic w_cost w_visualI w_visualG w_aesthetic w_Carbnemission];
+goals = 100-Objective_m;
+
+Opt=max(w.*goals,[],2);
+        
+end
+
+%% Optimization
+
+numvars=8; % Number of variables
+%intvars=[]; % Ineger variables. 
+IntCon = [2,3,5,6,7,8];
+
+rng('shuffle')
+
+% Now we have everything to run optimization:
+[xbest,fbest] = ga(@ObjFunction, numvars, [], [], [], [], lb, ub, @Constr,IntCon, opts);
+
+display(xbest) % Your optimal values of variables
+display(fbest) % Your optimal value of objective function 
+
+assignin('base','solution',[xbest fbest])
+
+end
