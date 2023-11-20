@@ -26,7 +26,7 @@ The design variables represent various aspects of a building's characteristics:
 The `Constr` function defines the nonlinear inequality and equality constraints. As currently implemented, it has no constraints (`c` and `ceq` are empty).
 
 ## Preferences
-The code incorporates preferences for thermal comfort (PPD) and energy consumption (KWh). The preferences are modeled using piecewise cubic Hermite interpolating polynomials (`pchip`) based on specified curves.
+The preferences are modeled using piecewise cubic Hermite interpolating polynomials (`pchip`) based on specified curves.
 
 1. **Thermal Comfort (PPD):**
     - Minimum PPD: `PPD_Min`
@@ -64,7 +64,7 @@ The code includes preferences for carbon emission (`Ece_min`, `Ece_max`, `Ece_In
 Objective functions are assigned weights (`w_Econ`, `w_Thermal`, `w_acoustic`, `w_cost`, `w_visualG`, `w_visualI`, `w_aesthetic`, `w_Carbnemission`) to reflect their importance in the overall goal attainment. The weights are normalized to ensure a total weight of 1.
 Weights distribution in this code represents the balanced between Project stakeholders. 
 The final normalized weights (`w_Econ`, `w_Thermal`, etc.) are calculated to distribute the overall weight proportionally among different objectives.
-# MATLAB Code Explanation: Genetic Algorithm Options and EnergyPlus Simulation Configuration
+
 
 ## Genetic Algorithm (GA) Options
 The code defines options for the Genetic Algorithm (GA) using the `optimoptions` function. The options include:
